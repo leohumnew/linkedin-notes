@@ -1,17 +1,17 @@
 // ==UserScript==
 // @name         LinkedIn Connection Notes
 // @namespace    http://tampermonkey.net/
-// @version      0.1
+// @version      0.2
 // @description  Add notes to LinkedIn Connections
 // @author       leohumnew
 // @match        https://www.linkedin.com/mynetwork/invite-connect/connections/
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=linkedin.com
-// @grant        none
+// @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
 (function() {
     'use strict';
-    console.log("LinkedIn Connection Notes loaded");
+    let BASE_CLOUD_LINK = "LINK TO GOOGLE SCRIPT";
 
     // Wait until div with class "mn-connection-card" is added to DOM, using MutationObserver
     const startObserving = (domNode, classToLookFor) => {
@@ -43,11 +43,18 @@
         return observer;
     };
     startObserving(document.body, "mn-connection-card");
+    loadFromCloudStorage();
 
     // Add notes link to mn-connection-card__details
     function initCard(addedCard) {
         let notesLink = document.createElement("a");
-        notesLink.innerHTML = "    Notes";
+        notesLink.className = "mn-connection-card__notes";
+        let note = getNote(addedCard.getElementsByClassName("mn-connection-card__link")[0].href);
+        if (note == "") {
+            notesLink.innerHTML = " Add note";
+        } else {
+            notesLink.innerHTML = "<br>" + note;
+        }
         notesLink.href = "#";
         notesLink.onclick = function() {
             openNotes(addedCard);
@@ -66,6 +73,42 @@
     }
     function saveToLocalStorage() {
         localStorage.setItem("linkedInNotes", JSON.stringify(connectionNotes));
+    }
+    // Cloud storage functions
+    function saveToCloudStorage(name, note, link) {
+        try {
+
+            let requestBaseURL = BASE_CLOUD_LINK;
+            let requestURL = requestBaseURL + "?name=" + encodeURI(name) + "&note=" + encodeURI(note) + "&link=" + encodeURI(link);
+
+            GM.xmlHttpRequest ({
+                method:     "GET",
+                url:        requestURL,
+                onload:     function (response) {
+                    console.log(response);
+                }
+            });
+        } catch (error) {
+            console.log("Error saving to cloud storage: " + error);
+        }        
+    }
+    function loadFromCloudStorage() {
+        try {
+            let requestBaseURL = BASE_CLOUD_LINK;
+            let requestURL = requestBaseURL + "?name=load&note=load&link=load";
+
+            GM.xmlHttpRequest ({
+                method:     "GET",
+                url:        requestURL,
+                onload:     function (response) {
+                    console.log(response);
+                    connectionNotes = JSON.parse(response.responseText);
+                    saveToLocalStorage();
+                }
+            });
+        } catch (error) {
+            console.log("Error loading from cloud storage: " + error);
+        }
     }
 
     // Add styles to page
@@ -88,14 +131,23 @@
             return connectionNotes[connectionLink][1];
         }
     }
-    function editNote(connectionLink, noteName, noteText) {
+    function editNote(connectionLink, noteName, noteText, noteCardElement) {
         getFromLocalStorage();
-        if (connectionNotes[connectionLink] == null) {
-            connectionNotes[connectionLink] = [noteName, noteText];
+        if (noteText == "" && connectionNotes[connectionLink] != null) {
+            saveToCloudStorage(noteName, noteText, connectionLink);
+            delete connectionNotes[connectionLink];
+            saveToLocalStorage();
         } else {
-            connectionNotes[connectionLink][1] = noteText;
+            if (connectionNotes[connectionLink] == null) {
+                connectionNotes[connectionLink] = [noteName, noteText];
+            } else {
+                connectionNotes[connectionLink][1] = noteText;
+            }
+            saveToLocalStorage();
+            saveToCloudStorage(noteName, noteText, connectionLink);
+            // Update note text on card
+            noteCardElement.innerHTML = "<br>" + noteText;
         }
-        saveToLocalStorage();
     }
 
     // Open Notes function - open a popup with notes for the connection
@@ -120,7 +172,7 @@
         saveButton.className = "saveButton artdeco-button artdeco-button--2 artdeco-button--secondary";
         saveButton.innerHTML = "Save";
         saveButton.onclick = function() {
-            editNote(link, name, noteBox.value);
+            editNote(link, name, noteBox.value, connectionCard.getElementsByClassName("mn-connection-card__notes")[0]);
             popup.remove();
         };
         popup.append(closeButton, noteBox, saveButton);
